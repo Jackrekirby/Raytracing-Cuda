@@ -80,41 +80,42 @@
       <TargetMachinePlatform>64</TargetMachinePlatform>
       <AdditionalDeps>
       </AdditionalDeps>
-      <Include>.\glm</Include>
+      <Include>
+      </Include>
       <Runtime>MTd</Runtime>
       <FastMath>true</FastMath>
     </CudaCompile>
   </ItemDefinitionGroup>
   <ItemGroup>
     <CudaCompile Include="kernel.cu" />
-    <CudaCompile Include="tools.cuh">
+    <CudaCompile Include="src\tools.cuh">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
     </CudaCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="camera.cuh">
+    <ClInclude Include="src\camera.cuh">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
     </ClInclude>
-    <ClInclude Include="example.cuh">
+    <ClInclude Include="src\example.cuh">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
     </ClInclude>
-    <ClInclude Include="host_device_transfer.cuh">
+    <ClInclude Include="src\host_device_transfer.cuh">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
     </ClInclude>
-    <ClInclude Include="image.cuh">
+    <ClInclude Include="src\image.cuh">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
     </ClInclude>
-    <ClInclude Include="kernel_allocator.cuh">
+    <ClInclude Include="src\kernel_allocator.cuh">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
     </ClInclude>
-    <ClInclude Include="ray.cuh">
+    <ClInclude Include="src\ray.cuh">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
     </ClInclude>
-    <ClInclude Include="timing.cuh">
+    <ClInclude Include="src\timing.cuh">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
     </ClInclude>
-    <ClInclude Include="vec.cuh">
+    <ClInclude Include="src\vec.cuh">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
     </ClInclude>
   </ItemGroup>

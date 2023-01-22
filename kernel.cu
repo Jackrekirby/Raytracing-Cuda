@@ -2,240 +2,26 @@
 #include "cuda_runtime.h"
 #include "device_launch_parameters.h"
 #include <assert.h>
-
+#include <sstream>
 #include <array>
 
-#include "tools.cuh"
-#include "vec.cuh"
-#include "ray.cuh"
-#include "camera.cuh"
-#include "image.cuh"
-#include "timing.cuh"
-#include "host_device_transfer.cuh"
-#include "kernel_allocator.cuh"
+#include "src/tools.cuh"
+#include "src/vec.cuh"
+#include "src/ray.cuh"
+#include "src/camera.cuh"
+#include "src/image.cuh"
+#include "src/timing.cuh"
+#include "src/host_device_transfer.cuh"
+#include "src/kernel_allocator.cuh"
+#include "src/materials.cuh"
+#include "src/hit_record.cuh"
+#include "src/shapes.cuh"
+#include "src/object.cuh"
+#include "src/skybox.cuh"
 
-enum class Shape { sphere };
-enum class Material { Lambert, Metal, Dielectric };
-typedef unsigned int uint;
 constexpr uint n_spheres = 1000, n_lamberts = n_spheres, n_metals = n_spheres, n_dielectrics = n_spheres;
 constexpr uint n_objects = n_spheres;
-
-//constexpr uint n_spheres = 1, n_lamberts = 0, n_metals = 1, n_dielectrics = 0;
-//constexpr uint n_objects = n_spheres;
 constexpr int skybox_face_length = 900;
-
-GPU void throw_error(const char* msg) {
-    printf(msg);
-    __trap();
-}
-
-struct ObjectPtr {
-    ObjectPtr() : shape(Shape::sphere), shapeIndex(0), material(Material::Lambert), materialIndex(0) {
-    }
-    ObjectPtr(Shape shape, uint shapeIndex, Material material, uint materialIndex): shape(shape), shapeIndex(shapeIndex), 
-        material(material), materialIndex(materialIndex) {
-    }
-    Shape shape;
-    uint shapeIndex;
-    Material material;
-    uint materialIndex;
-};
-
-class HitRecord {
-public:
-    GPU HitRecord(): p(Float3()), normal(Float3()), t(0), front_face(false) { }
-
-    GPU void set_face_normal(const Ray& r, const Float3& outward_normal) {
-        front_face = dot(r.direction, outward_normal) < 0;
-        normal = front_face ? outward_normal : -outward_normal;
-    }
-    Float3 p;
-    Float3 normal;
-    float t;
-    bool front_face;
-};
-
-class Sphere {
-public:
-    Sphere() : center(Float3()), radius(0) {}
-
-    Sphere(const Float3& center, float radius)
-        : center(center), radius(radius) {
-
-    }
-
-    GPU bool hit(const Ray& ray, float t_min, float t_max, HitRecord& record) const {
-        Float3 oc = ray.origin - center;
-        const float a = ray.direction.length_squared();
-        const float half_b = dot(oc, ray.direction);
-        const float c = oc.length_squared() - radius * radius;
-        const float discriminant = half_b * half_b - a * c;
-        if (discriminant < 0) return false;
-        const float sqrtd = sqrtf(discriminant);
-
-        float root = (-half_b - sqrtd) / a;
-
-        if (root < t_min || t_max < root) {
-            root = (-half_b + sqrtd) / a;
-            if (root < t_min || t_max < root)
-                return false;
-        }
-
-        record.t = root;
-        record.p = ray.at(record.t);
-        const Float3 outward_normal = (record.p - center) / radius;
-        record.set_face_normal(ray, outward_normal);
-
-        return true;
-    }
-
-    Float3 center;
-    float radius;
-};
-
-class Lambert {
-public:
-    Lambert() : color(Float3()) {}
-    Lambert(Float3 color) : color(color) {}
-    Float3 color;
-};
-
-struct Metal {
-public:
-    Metal() : color(Float3()), roughness(0) {}
-    Metal(Float3 color, float roughness) : color(color), roughness(roughness) {}
-    Float3 color;
-    float roughness;
-};
-
-struct Dielectric {
-public:
-    Dielectric() : color(Float3()), refractive_index(0) {}
-    Dielectric(Float3 color, float refractive_index) : color(color), refractive_index(refractive_index) {}
-    Float3 color;
-    float refractive_index;
-};
-
-class Objects {
-public:
-    Objects(ObjectPtr* refs, Sphere* spheres, Lambert* lamberts, Metal* metals, Dielectric* dielectrics) :
-        refs(refs), spheres(spheres), lamberts(lamberts), metals(metals), dielectrics(dielectrics) { }
-
-    ObjectPtr* refs;
-    Sphere* spheres;
-    Lambert* lamberts;
-    Metal* metals;
-    Dielectric* dielectrics;
-};
-
-
-GPU int coordinate_to_skybox_pixel_index(const Float3& coordinate)
-{
-    Float3 abs_c = abs(coordinate);
-    Bool3 is_positive = coordinate.is_positive();
-
-    float max_axis, uc, vc;
-    int face_index = 0;
-
-    if (abs_c.x >= abs_c.y && abs_c.x >= abs_c.z) {
-        max_axis = abs_c.x;
-        vc = -coordinate.y;
-        if (is_positive.x) {
-            uc = -coordinate.z;
-            face_index = 1;
-        }
-        else {
-            uc = coordinate.z;
-            face_index = 0;
-        }
-    }
-
-    if (abs_c.y >= abs_c.x && abs_c.y >= abs_c.z) {
-        max_axis = abs_c.y;
-        uc = -coordinate.x;
-        if (is_positive.y) {
-            vc = -coordinate.z;
-            face_index = 2;
-        }
-        else {
-            vc = coordinate.z;
-            face_index = 3;
-        }
-    }
-
-    if (abs_c.z >= abs_c.x && abs_c.z >= abs_c.y) {
-        max_axis = abs_c.z;
-        vc = -coordinate.y;
-        if (is_positive.z) {
-            uc = coordinate.x;
-            face_index = 5;
-        }
-        else {
-            uc = -coordinate.x;
-            face_index = 4;
-        }
-    }
-
-    // Convert range from -1 to 1 to 0 to 1
-    float u = 0.5f * (uc / max_axis + 1.0f);
-    float v = 0.5f * (vc / max_axis + 1.0f);
-
-    float f_size = static_cast<float>(skybox_face_length);
-    int x = static_cast<int>(u * f_size);
-    int y = static_cast<int>(v * f_size);
-    int pixel_index = x + y * skybox_face_length + face_index * skybox_face_length * skybox_face_length;
-    return pixel_index;
-}
-
-
-GPU bool scatter_lambert(const Ray& ray_in, const HitRecord& record, Ray& ray_out, int& seed) {
-    Float3 direction = record.normal + random_unit_sphere(seed);
-
-    // Catch degenerate scatter direction
-    if (direction.near_zero())
-        direction = record.normal;
-
-    ray_out = Ray(record.p, direction);
-    return true;
-}
-
-GPU bool scatter_metal(const Metal& metal, const Ray& ray_in, const HitRecord& record, Ray& ray_out, int& seed) {
-    const Float3 direction = reflect(unit_vector(ray_in.direction), record.normal);
-
-    ray_out = Ray(record.p, direction + metal.roughness * random_in_unit_sphere(seed));
-    return (dot(ray_out.direction, record.normal) > 0);;
-}
-
-GPU bool scatter_dielectric(
-    const Dielectric& dielectric, const Ray& ray_in, const HitRecord& record, Ray& ray_out, int& seed
-) {
-    float refraction_ratio = record.front_face ? (1.0 / dielectric.refractive_index) : dielectric.refractive_index;
-
-    Float3 unit_direction = unit_vector(ray_in.direction);
-    float cos_theta = fmin(dot(-unit_direction, record.normal), 1.0F);
-    float sin_theta = sqrtf(1.0F - cos_theta * cos_theta);
-
-    bool cannot_refract = refraction_ratio * sin_theta > 1.0;
-    
-    Float3 direction;
-
-    // Use Schlick's approximation for reflectance.
-    auto r0 = (1 - refraction_ratio) / (1 + refraction_ratio);
-    r0 = r0 * r0;
-    auto reflectance = r0 + (1 - r0) * pow((1 - cos_theta), 5);
-
-    if (cannot_refract || reflectance > random_float(seed))
-        direction = reflect(unit_direction, record.normal);
-    else
-        direction = refract(unit_direction, record.normal, refraction_ratio);
-
-    ray_out = Ray(record.p, direction);
-    return true;
-}
-
-
-//constexpr float infinity = std::numeric_limits<float>::infinity();
-//constexpr float pi = 3.1415927F;
 
 GPU ObjectPtr* compute_hits(const Ray& ray, const Objects *objects, HitRecord &closest_hit_record) {
     float t_min = 0.001;
@@ -314,18 +100,14 @@ GPU Float3 color_ray(const Ray& ray, const Objects* objects, int depth, const Ch
         }
 
         const Float3 unit_direction = unit_vector(ray_in.direction);
-        const float t = 0.5 * (unit_direction.y + 1.0);
-        const Float3 sky_color = ((1.0F - t) * Float3(1, 1, 1) + t * Float3(0.5, 0.7, 1.0));
 
-        const int skybox_pixel_index = coordinate_to_skybox_pixel_index(unit_direction);
+        const int skybox_pixel_index = coordinate_to_skybox_pixel_index(unit_direction, skybox_face_length);
         color += total_attenuation * static_cast<Float3>(skybox_pixels[skybox_pixel_index]) / 256.0F;
         break;
     }
     
     return color;
 }
-
-
 
 CUDA void compute_pixel(
     const KernelAllocator* ka,
@@ -345,8 +127,8 @@ CUDA void compute_pixel(
     const int i = x + y * width;
     int seed = i;
 
-    const int samples_per_pixel = 300;
-    const int max_depth = 50;
+    const int samples_per_pixel = 1;
+    const int max_depth = 1;
 
     Float3 color(0, 0, 0);
     for (int i = 0; i < samples_per_pixel; ++i) {
@@ -358,17 +140,12 @@ CUDA void compute_pixel(
         color += color_ray(ray, objects, max_depth, skybox_pixels, seed);
     }
 
-    //const float r = float(x) / (width - 1);
-    //const float g = float(y) / (height - 1);
-    //const float b = 0.25;
-    //Float3 color(r, g, b);
-
     const Char3 icolor = static_cast<Char3>(256.0F * clamp(sqrt(color / static_cast<float>(samples_per_pixel)), 0.0F, 0.999F));
 
     if (isnan(color.x)) {
-        pixels[i] = Char3(0, 255, 0);
+        pixels[i] = Char3(255, 0, 0);
     } else if (!isfinite(color.x)) {
-        pixels[i] = Char3(0, 0, 255);
+        pixels[i] = Char3(0, 255, 0);
     } 
     else {
         pixels[i] = icolor;
@@ -431,7 +208,7 @@ int render() {
     t.start("render");
 
     int seed = 435735475; // 4357354765
-
+    std::stringstream ss;
 
     Image image(1920);
 
@@ -509,13 +286,7 @@ int render() {
         }
     }
 
-
-    // import skybox
-    std::vector<Char3> skybox_pixels(skybox_face_length * skybox_face_length * 6);
-    std::ifstream file("skybox/skybox.bin", std::ios::binary);
-    file.read((char*)skybox_pixels.data(), sizeof(Char3) * skybox_pixels.size());
-    file.close();
-
+    std::vector<Char3> skybox_pixels = import_skybox(skybox_face_length);
 
     //Objects objects(lamberts.data());
     Objects objects(objectPtrs.data(), spheres.data(), lamberts.data(), metals.data(), dielectrics.data());
@@ -587,6 +358,11 @@ int render() {
     t.start("save_image");
     image.save_as_bin("scene");
     t.stop();
+
+    t.start("bin2png");
+    ss << "node ./bin2png/main.js scene img/scene " << image.width << " " << image.height;
+    system(ss.str().c_str());
+    t.stop();
 ERROR:
     c_pixels.free();
     c_skybox_pixels.free();
@@ -603,25 +379,106 @@ ERROR:
     return 0;
 }
 
+
+template <int n>
+std::array<Metal, n> build_metals(int& seed) {
+    std::array<Metal, n> metals{};
+
+    for (int i = 0; i < n; i++) {
+        auto& metal = metals[i];
+        metal.color = Float3::random(seed, 0.5, 1);
+        metal.roughness = random_float(seed, 0, 1);
+    }
+
+    return metals;
+}
+
+template <int n>
+std::array<Lambert, n> build_lamberts(int& seed) {
+    std::array<Lambert, n> lamberts{};
+    for (int i = 0; i < n; i++) {
+        auto& lambert = lamberts[i];
+        lambert.color = Float3::random(seed, 0.5, 1);
+    }
+    return lamberts;
+}
+
+template <int n>
+std::array<Dielectric, n> build_dielectrics(int& seed) {
+    std::array<Dielectric, n> dielectrics{};
+
+    for (int i = 0; i < n; i++) {
+        auto& dielectric = dielectrics[i];
+        dielectric.color = Float3::random(seed, 0.5, 1);
+        dielectric.refractive_index = random_float(seed, 0.5, 4);
+    }
+    return dielectrics;
+}
+
+void test() {
+    // user variables
+    int seed = 1738463;
+    const int n_objects = 1000;
+    const int max_propensity = 100;
+    const int n_materials = 3;
+    std::array<int, n_materials> material_propensities = { 50, 25, 25 };
+
+    std::array<int, n_materials> material_counts{};
+
+    // check material propensities sum to max_propensity
+    int total_propensity = 0;
+    for (auto propensity : material_propensities) {
+        total_propensity += propensity;
+    }
+    if (total_propensity != max_propensity) {
+        printf("material propensities don't sum to max propensity");
+        return;
+    }
+
+    // convert propensities into actual number of material variants
+    int current_total_objects = 0;
+    for (int i = 1; i < n_materials; ++i) {
+        int n = static_cast<float>(n_objects) * static_cast<float>(material_propensities[i]) / static_cast<float>(max_propensity);
+        material_counts[i] = n;
+        current_total_objects += n;
+    }
+    material_counts[0] = n_objects - current_total_objects;
+
+    // create object ptrs
+    std::array<ObjectPtr, n_objects> objectPtrs{};
+
+    int objects_remaining = n_objects;
+    for (int i = 0; i < n_objects; ++i) {
+        float r = random_float(seed);
+        int r_check = 0;
+        auto& objectPtr = objectPtrs[i];
+
+        objectPtr.shape = Shape::sphere;
+        objectPtr.shapeIndex = i;
+
+        for (int j = 0; j < n_materials; ++j) {
+            r_check += static_cast<float>(material_counts[j]) / static_cast<float>(objects_remaining);
+            
+            if (r < r_check) {
+                material_counts[i] -= 1;
+                objects_remaining -= 1;
+                objectPtr.material = static_cast<Material>(j);
+                objectPtr.materialIndex = material_counts[i];
+            }
+        }
+    }
+
+    auto lamberts = build_lamberts<n_lamberts>(seed);
+    auto metals = build_metals<n_metals>(seed);
+    auto dielectrics = build_dielectrics<n_dielectrics>(seed);
+}
+
 int main() {
     int runtimeVersion = 0;
     cudaError_t cudaStatus;
     ON_ERROR_RETURN(cudaRuntimeGetVersion(&runtimeVersion));
     VAR("CUDA VERSION", runtimeVersion);
     return render();    
-
-    //for (int i = 0; i < 10000; ++i) {
-    //    auto seed = i;
-    //    auto val = Float3(random_float(seed, -1, 1), random_float(seed, -1, 1), 0);
-    //    //test((val / val.length()).x);
-    //    auto n = (val / val.length()).x;
-    //    if (isnan(n) && n != 0.0F) {
-    //        printf("%i, %.4f\n", i, n);
-    //        printf("%.4f, %.4f, %.4f\n", val.x, val.y, val.z);
-    //    }
-    //}
-
-
 }
 
 
