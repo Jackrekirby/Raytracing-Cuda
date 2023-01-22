@@ -26,6 +26,10 @@ APUS float random_float(int& seed, float min, float max) {
     return min + random_float(seed) * (max - min);
 }
 
+struct Bool3 {
+    bool x, y, z;
+};
+
 template <typename T>
 class vec3 {
 public:
@@ -56,7 +60,7 @@ public:
     }
 
     template <typename S>
-    APUS operator vec3<S>() {
+    APUS operator vec3<S>() const {
         return vec3<S>(static_cast<S>(x), static_cast<S>(y), static_cast<S>(z));
     }
 
@@ -89,6 +93,10 @@ public:
 
     APUS T length_squared() const {
         return x * x + y * y + z * z;
+    }
+
+    APUS Bool3 is_positive() const {
+        return {x > 0, y > 0, z > 0};
     }
 
     APUS bool near_zero() const {
@@ -154,6 +162,11 @@ APUS vec3<T> clamp(vec3<T> v, T min, T max) {
 APUS vec3<float> sqrt(vec3<float> v) {
     return vec3<float>(sqrtf(v.x), sqrtf(v.y), sqrtf(v.z));
 }
+
+APUS vec3<float> abs(vec3<float> v) {
+    return vec3<float>(abs(v.x), abs(v.y), abs(v.z));
+}
+
 
 template <typename T>
 APUS T dot(const vec3<T>& u, const vec3<T>& v) {

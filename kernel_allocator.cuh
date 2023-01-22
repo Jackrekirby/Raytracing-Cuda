@@ -10,7 +10,7 @@ public:
         num_blocks = size / max_threads + 1;
     }
 
-    GPU int2 get_coords(int iThread, int iBlock) {
+    GPU int2 get_coords(int iThread, int iBlock) const {
         int2 coords = { 0, 0 };
         int i = iThread + iBlock * max_threads;
         coords.y = i / width;

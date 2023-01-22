@@ -20,6 +20,10 @@ typedef unsigned int uint;
 constexpr uint n_spheres = 1000, n_lamberts = n_spheres, n_metals = n_spheres, n_dielectrics = n_spheres;
 constexpr uint n_objects = n_spheres;
 
+//constexpr uint n_spheres = 1, n_lamberts = 0, n_metals = 1, n_dielectrics = 0;
+//constexpr uint n_objects = n_spheres;
+constexpr int skybox_face_length = 900;
+
 GPU void throw_error(const char* msg) {
     printf(msg);
     __trap();
@@ -124,6 +128,66 @@ public:
     Dielectric* dielectrics;
 };
 
+
+GPU int coordinate_to_skybox_pixel_index(const Float3& coordinate)
+{
+    Float3 abs_c = abs(coordinate);
+    Bool3 is_positive = coordinate.is_positive();
+
+    float max_axis, uc, vc;
+    int face_index = 0;
+
+    if (abs_c.x >= abs_c.y && abs_c.x >= abs_c.z) {
+        max_axis = abs_c.x;
+        vc = -coordinate.y;
+        if (is_positive.x) {
+            uc = -coordinate.z;
+            face_index = 1;
+        }
+        else {
+            uc = coordinate.z;
+            face_index = 0;
+        }
+    }
+
+    if (abs_c.y >= abs_c.x && abs_c.y >= abs_c.z) {
+        max_axis = abs_c.y;
+        uc = -coordinate.x;
+        if (is_positive.y) {
+            vc = -coordinate.z;
+            face_index = 2;
+        }
+        else {
+            vc = coordinate.z;
+            face_index = 3;
+        }
+    }
+
+    if (abs_c.z >= abs_c.x && abs_c.z >= abs_c.y) {
+        max_axis = abs_c.z;
+        vc = -coordinate.y;
+        if (is_positive.z) {
+            uc = coordinate.x;
+            face_index = 5;
+        }
+        else {
+            uc = -coordinate.x;
+            face_index = 4;
+        }
+    }
+
+    // Convert range from -1 to 1 to 0 to 1
+    float u = 0.5f * (uc / max_axis + 1.0f);
+    float v = 0.5f * (vc / max_axis + 1.0f);
+
+    float f_size = static_cast<float>(skybox_face_length);
+    int x = static_cast<int>(u * f_size);
+    int y = static_cast<int>(v * f_size);
+    int pixel_index = x + y * skybox_face_length + face_index * skybox_face_length * skybox_face_length;
+    return pixel_index;
+}
+
+
 GPU bool scatter_lambert(const Ray& ray_in, const HitRecord& record, Ray& ray_out, int& seed) {
     Float3 direction = record.normal + random_unit_sphere(seed);
 
@@ -201,7 +265,7 @@ GPU ObjectPtr* compute_hits(const Ray& ray, const Objects *objects, HitRecord &c
     return closest_object;
 }
 
-GPU Float3 color_ray(const Ray& ray, const Objects* objects, int depth, int& seed) {
+GPU Float3 color_ray(const Ray& ray, const Objects* objects, int depth, const Char3* skybox_pixels, int& seed) {
     Float3 color(0, 0, 0);
     Float3 total_attenuation(1, 1, 1);
     Ray ray_in = ray;
@@ -251,10 +315,10 @@ GPU Float3 color_ray(const Ray& ray, const Objects* objects, int depth, int& see
 
         const Float3 unit_direction = unit_vector(ray_in.direction);
         const float t = 0.5 * (unit_direction.y + 1.0);
+        const Float3 sky_color = ((1.0F - t) * Float3(1, 1, 1) + t * Float3(0.5, 0.7, 1.0));
 
-        
-       
-        color += total_attenuation * ((1.0F - t) * Float3(1, 1, 1) + t * Float3(0.5, 0.7, 1.0));
+        const int skybox_pixel_index = coordinate_to_skybox_pixel_index(unit_direction);
+        color += total_attenuation * static_cast<Float3>(skybox_pixels[skybox_pixel_index]) / 256.0F;
         break;
     }
     
@@ -264,10 +328,11 @@ GPU Float3 color_ray(const Ray& ray, const Objects* objects, int depth, int& see
 
 
 CUDA void compute_pixel(
-    KernelAllocator* ka,
+    const KernelAllocator* ka,
     Char3* pixels,
-    Camera* camera,
-    Objects* objects
+    const Camera* camera,
+    const Objects* objects,
+    const Char3* skybox_pixels
 ) {
     int2 coords = ka->get_coords(threadIdx.x, blockIdx.x);
     const int x = coords.x;
@@ -280,8 +345,8 @@ CUDA void compute_pixel(
     const int i = x + y * width;
     int seed = i;
 
-    const int samples_per_pixel = 30;
-    const int max_depth = 10;
+    const int samples_per_pixel = 300;
+    const int max_depth = 50;
 
     Float3 color(0, 0, 0);
     for (int i = 0; i < samples_per_pixel; ++i) {
@@ -290,7 +355,7 @@ CUDA void compute_pixel(
 
         const Ray ray = camera->compute_ray(u, v, seed);
       
-        color += color_ray(ray, objects, max_depth, seed);
+        color += color_ray(ray, objects, max_depth, skybox_pixels, seed);
     }
 
     //const float r = float(x) / (width - 1);
@@ -304,9 +369,7 @@ CUDA void compute_pixel(
         pixels[i] = Char3(0, 255, 0);
     } else if (!isfinite(color.x)) {
         pixels[i] = Char3(0, 0, 255);
-    } else if (color.x == 0) {
-        pixels[i] = Char3(255, 0, 0);
-    }
+    } 
     else {
         pixels[i] = icolor;
     }
@@ -316,6 +379,7 @@ CUDA void compute_pixel(
 
 void generate_scene(
     std::array<Sphere, n_spheres>& spheres, 
+    const Float3 offset,
     float max_placement_radius, 
     float min_radius, 
     float max_radius, 
@@ -336,7 +400,7 @@ void generate_scene(
             placement_radius * cosf(placement_angle),
             radius, 
             placement_radius * sinf(placement_angle)
-        );
+        ) + offset;
 
         bool too_close = false;
 
@@ -389,7 +453,9 @@ int render() {
         lambert.color = Float3::random(seed, 0.5, 1);
     }
 
-    std::array<Metal, n_metals> metals{};
+    std::array<Metal, n_metals> metals{
+        //Metal(Float3(1, 1, 1), 0)
+    };
 
     for (int i = 0; i < n_metals; i++) {
         auto& metal = metals[i];
@@ -407,15 +473,16 @@ int render() {
 
     std::array<Sphere, n_spheres> spheres = {
         Sphere(Float3(0,-1000,0), 1000)
+        //Sphere(Float3(0,0,0), 3)
     };
 
-    generate_scene(spheres, 16.0F, 0.2F, 1.2F, 1, seed);
+    generate_scene(spheres, Float3(0, 0, 0), 16.0F, 0.2F, 1.2F, 1, seed);
 
  /*   for (auto sphere : spheres) {
         printf("%.4f, %.4f, %.4f, %.4f\n", sphere.center.x, sphere.center.y, sphere.center.z, sphere.radius);
     }*/
 
-    std::array<ObjectPtr, n_objects> objectPtrs{};
+    std::array<ObjectPtr, n_objects> objectPtrs{ ObjectPtr(Shape::sphere, 0, Material::Metal, 0)};
 
     int lambert_index = 0;
     int metal_index = 0;
@@ -443,19 +510,26 @@ int render() {
     }
 
 
+    // import skybox
+    std::vector<Char3> skybox_pixels(skybox_face_length * skybox_face_length * 6);
+    std::ifstream file("skybox/skybox.bin", std::ios::binary);
+    file.read((char*)skybox_pixels.data(), sizeof(Char3) * skybox_pixels.size());
+    file.close();
+
 
     //Objects objects(lamberts.data());
     Objects objects(objectPtrs.data(), spheres.data(), lamberts.data(), metals.data(), dielectrics.data());
 
     GpuDataClone<Objects> c_objects(&objects);
-    GpuDataClone<Sphere> c_spheres(spheres.data(), static_cast<int>(spheres.size()));
-    GpuDataClone<Lambert> c_lamberts(lamberts.data(), static_cast<int>(lamberts.size()));
-    GpuDataClone<Metal> c_metals(metals.data(), static_cast<int>(metals.size()));
-    GpuDataClone<Dielectric> c_dielectrics(dielectrics.data(), static_cast<int>(dielectrics.size()));
-    GpuDataClone<ObjectPtr> c_objectPtrs(objectPtrs.data(), static_cast<int>(objectPtrs.size()));
+    GpuDataClone<Sphere> c_spheres(spheres);
+    GpuDataClone<Lambert> c_lamberts(lamberts);
+    GpuDataClone<Metal> c_metals(metals);
+    GpuDataClone<Dielectric> c_dielectrics(dielectrics);
+    GpuDataClone<ObjectPtr> c_objectPtrs(objectPtrs);
 
     GpuDataClone<Camera> c_camera(&camera);
-    GpuDataClone<Char3> c_pixels(image.pixels.data(), static_cast<int>(image.pixels.size()));
+    GpuDataClone<Char3> c_pixels(image.pixels);
+    GpuDataClone<Char3> c_skybox_pixels(skybox_pixels);
     GpuDataClone<KernelAllocator> c_ka(&ka);
     
     VAR("height", ka.height);
@@ -466,6 +540,7 @@ int render() {
     cudaError_t cudaStatus;
     ON_ERROR_GOTO(cudaSetDevice(0));
     ON_ERROR_GOTO(c_pixels.allocate());
+    ON_ERROR_GOTO(c_skybox_pixels.allocate());
     ON_ERROR_GOTO(c_objects.allocate());
     ON_ERROR_GOTO(c_spheres.allocate());
     ON_ERROR_GOTO(c_lamberts.allocate());
@@ -484,6 +559,7 @@ int render() {
     ON_ERROR_GOTO(c_dielectrics.toGpu());
     ON_ERROR_GOTO(c_objectPtrs.toGpu());
     ON_ERROR_GOTO(c_camera.toGpu());
+    ON_ERROR_GOTO(c_skybox_pixels.toGpu());
     ON_ERROR_GOTO(c_ka.toGpu());
     t.stop();
 
@@ -498,7 +574,8 @@ int render() {
         c_ka.devPtr, 
         c_pixels.devPtr, 
         c_camera.devPtr, 
-        c_objects.devPtr
+        c_objects.devPtr,
+        c_skybox_pixels.devPtr
     ); // max number of threads = 1024
     ON_ERROR_GOTO(cudaDeviceSynchronize());
     t.stop();
@@ -512,6 +589,7 @@ int render() {
     t.stop();
 ERROR:
     c_pixels.free();
+    c_skybox_pixels.free();
     c_camera.free();
     c_ka.free();
     c_objects.free();
@@ -531,7 +609,6 @@ int main() {
     ON_ERROR_RETURN(cudaRuntimeGetVersion(&runtimeVersion));
     VAR("CUDA VERSION", runtimeVersion);
     return render();    
-
 
     //for (int i = 0; i < 10000; ++i) {
     //    auto seed = i;

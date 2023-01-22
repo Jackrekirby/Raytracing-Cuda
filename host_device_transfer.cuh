@@ -1,6 +1,8 @@
 #pragma once
 #include "cuda_runtime.h"
 #include "device_launch_parameters.h"
+#include <array>
+#include <vector>
 
 template <typename T>
 cudaError_t allocateGpuBuffer(T** devPtr, unsigned int size = 1) {
@@ -17,10 +19,21 @@ cudaError_t copyDataFromGpuBuffer(T* dst, const T* src, unsigned int size = 1) {
     return cudaMemcpy(dst, src, size * sizeof(T), cudaMemcpyDeviceToHost);
 }
 
+
 template <typename T>
 class GpuDataClone {
 public:
+
     GpuDataClone(T* hostPtr, int size = 1) : hostPtr(hostPtr), devPtr(0), size(size) {
+
+    }
+
+    template <int N>
+    GpuDataClone(std::array<T, N>& list) : hostPtr(list.data()), devPtr(0), size(N) {
+
+    }
+
+    GpuDataClone(std::vector<T>& list) : hostPtr(list.data()), devPtr(0), size(static_cast<int>(list.size())) {
 
     }
 
