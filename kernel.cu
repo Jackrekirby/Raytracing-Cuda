@@ -18,8 +18,9 @@
 #include "src/shapes.cuh"
 #include "src/object.cuh"
 #include "src/skybox.cuh"
+#include "src/scene.cuh"
 
-constexpr uint n_spheres = 1000, n_lamberts = n_spheres, n_metals = n_spheres, n_dielectrics = n_spheres;
+constexpr uint n_spheres = 1000, n_lamberts = 500, n_metals = 300, n_dielectrics = 200;
 constexpr uint n_objects = n_spheres;
 constexpr int skybox_face_length = 900;
 
@@ -127,8 +128,8 @@ CUDA void compute_pixel(
     const int i = x + y * width;
     int seed = i;
 
-    const int samples_per_pixel = 1;
-    const int max_depth = 1;
+    const int samples_per_pixel = 10;
+    const int max_depth = 5;
 
     Float3 color(0, 0, 0);
     for (int i = 0; i < samples_per_pixel; ++i) {
@@ -154,7 +155,7 @@ CUDA void compute_pixel(
     
 
 
-void generate_scene(
+void generate_spheres(
     std::array<Sphere, n_spheres>& spheres, 
     const Float3 offset,
     float max_placement_radius, 
@@ -226,98 +227,97 @@ int render() {
 
     KernelAllocator ka(image.width, image.height);
 
-    std::array<Lambert, n_lamberts> lamberts{};
+    //std::array<Lambert, n_lamberts> lamberts{};
 
-    for (int i = 0; i < n_lamberts; i++) {
-        auto& lambert = lamberts[i];
-        lambert.color = Float3::random(seed, 0.5, 1);
-    }
+    //for (int i = 0; i < n_lamberts; i++) {
+    //    auto& lambert = lamberts[i];
+    //    lambert.color = Float3::random(seed, 0.5, 1);
+    //}
 
-    std::array<Metal, n_metals> metals{
-        //Metal(Float3(1, 1, 1), 0)
-    };
+    //std::array<Metal, n_metals> metals{
+    //    //Metal(Float3(1, 1, 1), 0)
+    //};
 
-    for (int i = 0; i < n_metals; i++) {
-        auto& metal = metals[i];
-        metal.color = Float3::random(seed, 0.5, 1);
-        metal.roughness = random_float(seed, 0, 1);
-    }
+    //for (int i = 0; i < n_metals; i++) {
+    //    auto& metal = metals[i];
+    //    metal.color = Float3::random(seed, 0.5, 1);
+    //    metal.roughness = random_float(seed, 0, 1);
+    //}
 
-    std::array<Dielectric, n_dielectrics> dielectrics{};
+    //std::array<Dielectric, n_dielectrics> dielectrics{};
 
-    for (int i = 0; i < n_dielectrics; i++) {
-        auto& dielectric = dielectrics[i];
-        dielectric.color = Float3::random(seed, 0.5, 1);
-        dielectric.refractive_index = random_float(seed, 0.5, 4);
-    }
+    //for (int i = 0; i < n_dielectrics; i++) {
+    //    auto& dielectric = dielectrics[i];
+    //    dielectric.color = Float3::random(seed, 0.5, 1);
+    //    dielectric.refractive_index = random_float(seed, 0.5, 4);
+    //}
 
-    std::array<Sphere, n_spheres> spheres = {
-        Sphere(Float3(0,-1000,0), 1000)
-        //Sphere(Float3(0,0,0), 3)
-    };
+    //std::array<Sphere, n_spheres> spheres = {
+    //    Sphere(Float3(0,-1000,0), 1000)
+    //    //Sphere(Float3(0,0,0), 3)
+    //};
 
-    generate_scene(spheres, Float3(0, 0, 0), 16.0F, 0.2F, 1.2F, 1, seed);
+    //generate_spheres(spheres, Float3(0, 0, 0), 16.0F, 0.2F, 1.2F, 1, seed);
+
+    //std::array<ObjectPtr, n_objects> objectPtrs{ ObjectPtr(Shape::sphere, 0, Material::Metal, 0) };
+
+
+    ObjectManager obj_mgr(n_objects, n_spheres, n_lamberts, n_metals, n_dielectrics);
+    obj_mgr.add_object(Shape::sphere, Material::Metal);
+    obj_mgr.spheres.push_back({ Float3(0,-1000,0), 1000 });
+    obj_mgr.metals.push_back({ Metal(Float3(0.7, 0.7, 1), 0.4) });
+    obj_mgr.random_fill(seed, Float3(0, 0, 0), 32.0F, 0.2F, 1.2F, 100);
+    obj_mgr.build_objects();
+
 
  /*   for (auto sphere : spheres) {
         printf("%.4f, %.4f, %.4f, %.4f\n", sphere.center.x, sphere.center.y, sphere.center.z, sphere.radius);
     }*/
 
-    std::array<ObjectPtr, n_objects> objectPtrs{ ObjectPtr(Shape::sphere, 0, Material::Metal, 0)};
+    
 
-    int lambert_index = 0;
-    int metal_index = 0;
-    int dielectric_index = 0;
-    for (int i = 0; i < n_objects; i++) {
-        auto& ref = objectPtrs[i];
-        ref.shape = Shape::sphere;
-        ref.shapeIndex = i;
+    //int lambert_index = 0;
+    //int metal_index = 0;
+    //int dielectric_index = 0;
+    //for (int i = 0; i < n_objects; i++) {
+    //    auto& ref = objectPtrs[i];
+    //    ref.shape = Shape::sphere;
+    //    ref.shapeIndex = i;
 
-        float r = random_float(seed);
-        if (r < 0.5F) {
-            ref.material = Material::Lambert;
-            ref.materialIndex = lambert_index;
-            lambert_index++;
-        } else if (r < 0.75F) {
-            ref.material = Material::Metal;
-            ref.materialIndex = metal_index;
-            metal_index++;
-        }
-        else {
-            ref.material = Material::Dielectric;
-            ref.materialIndex = dielectric_index;
-            dielectric_index++;
-        }
-    }
+    //    float r = random_float(seed);
+    //    if (r < 0.5F) {
+    //        ref.material = Material::Lambert;
+    //        ref.materialIndex = lambert_index;
+    //        lambert_index++;
+    //    } else if (r < 0.75F) {
+    //        ref.material = Material::Metal;
+    //        ref.materialIndex = metal_index;
+    //        metal_index++;
+    //    }
+    //    else {
+    //        ref.material = Material::Dielectric;
+    //        ref.materialIndex = dielectric_index;
+    //        dielectric_index++;
+    //    }
+    //}
 
     std::vector<Char3> skybox_pixels = import_skybox(skybox_face_length);
 
     //Objects objects(lamberts.data());
-    Objects objects(objectPtrs.data(), spheres.data(), lamberts.data(), metals.data(), dielectrics.data());
+    //Objects objects(objectPtrs.data(), spheres.data(), lamberts.data(), metals.data(), dielectrics.data());
 
 
     AlienManager am;
-    auto &c_objects = am.add(objects);
-    auto &c_spheres = am.add(spheres);
-    auto &c_lamberts = am.add(lamberts);
-    auto &c_metals = am.add(metals);
-    auto &c_dielectrics = am.add(dielectrics);
-    auto &c_objectPtrs = am.add(objectPtrs);
+    auto &c_objects = am.add(obj_mgr.objects);
+    auto &c_spheres = am.add(obj_mgr.spheres);
+    auto &c_lamberts = am.add(obj_mgr.lamberts);
+    auto &c_metals = am.add(obj_mgr.metals);
+    auto &c_dielectrics = am.add(obj_mgr.dielectrics);
+    auto &c_objectPtrs = am.add(obj_mgr.objectPtrs);
     auto &c_camera = am.add(camera);
     auto &c_pixels = am.add(image.pixels, AlienType::OUT);
     auto &c_skybox_pixels = am.add(skybox_pixels);
     auto &c_ka = am.add(ka);
-
-    //GpuDataClone<Objects> c_objects(&objects);
-    //GpuDataClone<Sphere> c_spheres(spheres);
-    //GpuDataClone<Lambert> c_lamberts(lamberts);
-    //GpuDataClone<Metal> c_metals(metals);
-    //GpuDataClone<Dielectric> c_dielectrics(dielectrics);
-    //GpuDataClone<ObjectPtr> c_objectPtrs(objectPtrs);
-
-    //GpuDataClone<Camera> c_camera(&camera);
-    //GpuDataClone<Char3> c_pixels(image.pixels);
-    //GpuDataClone<Char3> c_skybox_pixels(skybox_pixels);
-    //GpuDataClone<KernelAllocator> c_ka(&ka);
     
     VAR("height", ka.height);
     VAR("num_blocks", ka.num_blocks);
@@ -328,29 +328,10 @@ int render() {
     ON_ERROR_GOTO(cudaSetDevice(0));
     ON_ERROR_GOTO(am.allocate());
     
-    //ON_ERROR_GOTO(c_pixels.allocate());
-    //ON_ERROR_GOTO(c_skybox_pixels.allocate());
-    //ON_ERROR_GOTO(c_objects.allocate());
-    //ON_ERROR_GOTO(c_spheres.allocate());
-    //ON_ERROR_GOTO(c_lamberts.allocate());
-    //ON_ERROR_GOTO(c_metals.allocate());
-    //ON_ERROR_GOTO(c_dielectrics.allocate());
-    //ON_ERROR_GOTO(c_objectPtrs.allocate());
-    //ON_ERROR_GOTO(c_camera.allocate());
-    //ON_ERROR_GOTO(c_ka.allocate());
     t.stop();
 
     t.start("gpu data transfer");
     ON_ERROR_GOTO(am.toGpu());
-    //ON_ERROR_GOTO(c_objects.toGpu());
-    //ON_ERROR_GOTO(c_spheres.toGpu());
-    //ON_ERROR_GOTO(c_lamberts.toGpu());
-    //ON_ERROR_GOTO(c_metals.toGpu());
-    //ON_ERROR_GOTO(c_dielectrics.toGpu());
-    //ON_ERROR_GOTO(c_objectPtrs.toGpu());
-    //ON_ERROR_GOTO(c_camera.toGpu());
-    //ON_ERROR_GOTO(c_skybox_pixels.toGpu());
-    //ON_ERROR_GOTO(c_ka.toGpu());
     t.stop();
 
     copyDataToGpuBuffer(&c_objects.devPtr->spheres, &c_spheres.devPtr);
@@ -372,7 +353,6 @@ int render() {
     
     t.start("get pixel data");
     ON_ERROR_GOTO(am.fromGpu());
-    //ON_ERROR_GOTO(c_pixels.fromGpu());
     t.stop();
 
     t.start("save_image");
@@ -385,17 +365,6 @@ int render() {
     t.stop();
 ERROR:
     am.free();
-    //c_pixels.free();
-    //c_skybox_pixels.free();
-    //c_camera.free();
-    //c_ka.free();
-    //c_objects.free();
-    //c_spheres.free();
-    //c_lamberts.free();
-    //c_metals.free();
-    //c_dielectrics.free();
-    //c_objectPtrs.free();
-    //t.stop();
     ON_ERROR_RETURN(cudaStatus);
     return 0;
 }
@@ -413,6 +382,9 @@ int main() {
     ON_ERROR_RETURN(cudaRuntimeGetVersion(&runtimeVersion));
     VAR("CUDA VERSION", runtimeVersion);
     return render();
+
+    
+    //return 0;
 
 //    AlienManager am;
 //    std::vector<Char3> pixels = { Char3(1, 2, 3) };

@@ -17,6 +17,8 @@ public:
 
 class Objects {
 public:
+    Objects(): refs(nullptr), spheres(nullptr), lamberts(nullptr), metals(nullptr), dielectrics(nullptr) {}
+
     Objects(ObjectPtr* refs, Sphere* spheres, Lambert* lamberts, Metal* metals, Dielectric* dielectrics) :
         refs(refs), spheres(spheres), lamberts(lamberts), metals(metals), dielectrics(dielectrics) { }
 
