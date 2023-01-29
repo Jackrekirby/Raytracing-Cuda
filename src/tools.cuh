@@ -4,6 +4,8 @@
 #include <iostream>
 #include <iomanip>
 
+typedef unsigned int uint;
+
 #define LOG(msg) std::cout << msg << '\n';
 #define VAR(name, value) LOG(std::setw(30) << name << ": " << value)
 #define ERR(msg) std::cerr << msg << '\n';
@@ -16,6 +18,7 @@
 #define KERNEL(fnc, numBlocks, numThreads) fnc<<<numBlocks,numThreads>>>
 
 #define FAIL_NAN(var) if (isnan(var) && var != 0.0F) __trap()
+#define EXIT(msg, ...) printf("Forced Exit at function: %s, line: %i. Message: ", __FUNCTION__, __LINE__); printf(msg, __VA_ARGS__); exit(1)
 
 constexpr float pi = 3.1415927F;
 constexpr float f_infinity = 3.40282e+038F;
@@ -56,3 +59,4 @@ cudaError_t checkLast(const char* const file, const int line)
 
 #define ON_ERROR_GOTO(val) cudaStatus = CHECK_CUDA_ERROR(val); if (cudaStatus != cudaSuccess) goto ERROR
 #define ON_ERROR_RETURN(val) cudaStatus = CHECK_CUDA_ERROR(val); if (cudaStatus != cudaSuccess) return 1
+#define RETURN_STATUS(val) cudaStatus = CHECK_CUDA_ERROR(val); if (cudaStatus != cudaSuccess) return cudaStatus

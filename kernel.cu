@@ -203,6 +203,9 @@ void generate_scene(
 }
 
 
+
+
+
 int render() {
     TimeIt t;
     t.start("render");
@@ -291,17 +294,30 @@ int render() {
     //Objects objects(lamberts.data());
     Objects objects(objectPtrs.data(), spheres.data(), lamberts.data(), metals.data(), dielectrics.data());
 
-    GpuDataClone<Objects> c_objects(&objects);
-    GpuDataClone<Sphere> c_spheres(spheres);
-    GpuDataClone<Lambert> c_lamberts(lamberts);
-    GpuDataClone<Metal> c_metals(metals);
-    GpuDataClone<Dielectric> c_dielectrics(dielectrics);
-    GpuDataClone<ObjectPtr> c_objectPtrs(objectPtrs);
 
-    GpuDataClone<Camera> c_camera(&camera);
-    GpuDataClone<Char3> c_pixels(image.pixels);
-    GpuDataClone<Char3> c_skybox_pixels(skybox_pixels);
-    GpuDataClone<KernelAllocator> c_ka(&ka);
+    AlienManager am;
+    auto &c_objects = am.add(objects);
+    auto &c_spheres = am.add(spheres);
+    auto &c_lamberts = am.add(lamberts);
+    auto &c_metals = am.add(metals);
+    auto &c_dielectrics = am.add(dielectrics);
+    auto &c_objectPtrs = am.add(objectPtrs);
+    auto &c_camera = am.add(camera);
+    auto &c_pixels = am.add(image.pixels, AlienType::OUT);
+    auto &c_skybox_pixels = am.add(skybox_pixels);
+    auto &c_ka = am.add(ka);
+
+    //GpuDataClone<Objects> c_objects(&objects);
+    //GpuDataClone<Sphere> c_spheres(spheres);
+    //GpuDataClone<Lambert> c_lamberts(lamberts);
+    //GpuDataClone<Metal> c_metals(metals);
+    //GpuDataClone<Dielectric> c_dielectrics(dielectrics);
+    //GpuDataClone<ObjectPtr> c_objectPtrs(objectPtrs);
+
+    //GpuDataClone<Camera> c_camera(&camera);
+    //GpuDataClone<Char3> c_pixels(image.pixels);
+    //GpuDataClone<Char3> c_skybox_pixels(skybox_pixels);
+    //GpuDataClone<KernelAllocator> c_ka(&ka);
     
     VAR("height", ka.height);
     VAR("num_blocks", ka.num_blocks);
@@ -310,28 +326,31 @@ int render() {
     t.start("gpu allocation");
     cudaError_t cudaStatus;
     ON_ERROR_GOTO(cudaSetDevice(0));
-    ON_ERROR_GOTO(c_pixels.allocate());
-    ON_ERROR_GOTO(c_skybox_pixels.allocate());
-    ON_ERROR_GOTO(c_objects.allocate());
-    ON_ERROR_GOTO(c_spheres.allocate());
-    ON_ERROR_GOTO(c_lamberts.allocate());
-    ON_ERROR_GOTO(c_metals.allocate());
-    ON_ERROR_GOTO(c_dielectrics.allocate());
-    ON_ERROR_GOTO(c_objectPtrs.allocate());
-    ON_ERROR_GOTO(c_camera.allocate());
-    ON_ERROR_GOTO(c_ka.allocate());
+    ON_ERROR_GOTO(am.allocate());
+    
+    //ON_ERROR_GOTO(c_pixels.allocate());
+    //ON_ERROR_GOTO(c_skybox_pixels.allocate());
+    //ON_ERROR_GOTO(c_objects.allocate());
+    //ON_ERROR_GOTO(c_spheres.allocate());
+    //ON_ERROR_GOTO(c_lamberts.allocate());
+    //ON_ERROR_GOTO(c_metals.allocate());
+    //ON_ERROR_GOTO(c_dielectrics.allocate());
+    //ON_ERROR_GOTO(c_objectPtrs.allocate());
+    //ON_ERROR_GOTO(c_camera.allocate());
+    //ON_ERROR_GOTO(c_ka.allocate());
     t.stop();
 
     t.start("gpu data transfer");
-    ON_ERROR_GOTO(c_objects.toGpu());
-    ON_ERROR_GOTO(c_spheres.toGpu());
-    ON_ERROR_GOTO(c_lamberts.toGpu());
-    ON_ERROR_GOTO(c_metals.toGpu());
-    ON_ERROR_GOTO(c_dielectrics.toGpu());
-    ON_ERROR_GOTO(c_objectPtrs.toGpu());
-    ON_ERROR_GOTO(c_camera.toGpu());
-    ON_ERROR_GOTO(c_skybox_pixels.toGpu());
-    ON_ERROR_GOTO(c_ka.toGpu());
+    ON_ERROR_GOTO(am.toGpu());
+    //ON_ERROR_GOTO(c_objects.toGpu());
+    //ON_ERROR_GOTO(c_spheres.toGpu());
+    //ON_ERROR_GOTO(c_lamberts.toGpu());
+    //ON_ERROR_GOTO(c_metals.toGpu());
+    //ON_ERROR_GOTO(c_dielectrics.toGpu());
+    //ON_ERROR_GOTO(c_objectPtrs.toGpu());
+    //ON_ERROR_GOTO(c_camera.toGpu());
+    //ON_ERROR_GOTO(c_skybox_pixels.toGpu());
+    //ON_ERROR_GOTO(c_ka.toGpu());
     t.stop();
 
     copyDataToGpuBuffer(&c_objects.devPtr->spheres, &c_spheres.devPtr);
@@ -352,7 +371,8 @@ int render() {
     t.stop();
     
     t.start("get pixel data");
-    ON_ERROR_GOTO(c_pixels.fromGpu());
+    ON_ERROR_GOTO(am.fromGpu());
+    //ON_ERROR_GOTO(c_pixels.fromGpu());
     t.stop();
 
     t.start("save_image");
@@ -364,121 +384,56 @@ int render() {
     system(ss.str().c_str());
     t.stop();
 ERROR:
-    c_pixels.free();
-    c_skybox_pixels.free();
-    c_camera.free();
-    c_ka.free();
-    c_objects.free();
-    c_spheres.free();
-    c_lamberts.free();
-    c_metals.free();
-    c_dielectrics.free();
-    c_objectPtrs.free();
-    t.stop();
+    am.free();
+    //c_pixels.free();
+    //c_skybox_pixels.free();
+    //c_camera.free();
+    //c_ka.free();
+    //c_objects.free();
+    //c_spheres.free();
+    //c_lamberts.free();
+    //c_metals.free();
+    //c_dielectrics.free();
+    //c_objectPtrs.free();
+    //t.stop();
     ON_ERROR_RETURN(cudaStatus);
     return 0;
 }
 
 
-template <int n>
-std::array<Metal, n> build_metals(int& seed) {
-    std::array<Metal, n> metals{};
-
-    for (int i = 0; i < n; i++) {
-        auto& metal = metals[i];
-        metal.color = Float3::random(seed, 0.5, 1);
-        metal.roughness = random_float(seed, 0, 1);
-    }
-
-    return metals;
+CUDA void test_kernal(Char3 *pixels) {
+    printf("%i", pixels[0].x);
+    pixels[0].x = 125;
 }
 
-template <int n>
-std::array<Lambert, n> build_lamberts(int& seed) {
-    std::array<Lambert, n> lamberts{};
-    for (int i = 0; i < n; i++) {
-        auto& lambert = lamberts[i];
-        lambert.color = Float3::random(seed, 0.5, 1);
-    }
-    return lamberts;
-}
-
-template <int n>
-std::array<Dielectric, n> build_dielectrics(int& seed) {
-    std::array<Dielectric, n> dielectrics{};
-
-    for (int i = 0; i < n; i++) {
-        auto& dielectric = dielectrics[i];
-        dielectric.color = Float3::random(seed, 0.5, 1);
-        dielectric.refractive_index = random_float(seed, 0.5, 4);
-    }
-    return dielectrics;
-}
-
-void test() {
-    // user variables
-    int seed = 1738463;
-    const int n_objects = 1000;
-    const int max_propensity = 100;
-    const int n_materials = 3;
-    std::array<int, n_materials> material_propensities = { 50, 25, 25 };
-
-    std::array<int, n_materials> material_counts{};
-
-    // check material propensities sum to max_propensity
-    int total_propensity = 0;
-    for (auto propensity : material_propensities) {
-        total_propensity += propensity;
-    }
-    if (total_propensity != max_propensity) {
-        printf("material propensities don't sum to max propensity");
-        return;
-    }
-
-    // convert propensities into actual number of material variants
-    int current_total_objects = 0;
-    for (int i = 1; i < n_materials; ++i) {
-        int n = static_cast<float>(n_objects) * static_cast<float>(material_propensities[i]) / static_cast<float>(max_propensity);
-        material_counts[i] = n;
-        current_total_objects += n;
-    }
-    material_counts[0] = n_objects - current_total_objects;
-
-    // create object ptrs
-    std::array<ObjectPtr, n_objects> objectPtrs{};
-
-    int objects_remaining = n_objects;
-    for (int i = 0; i < n_objects; ++i) {
-        float r = random_float(seed);
-        int r_check = 0;
-        auto& objectPtr = objectPtrs[i];
-
-        objectPtr.shape = Shape::sphere;
-        objectPtr.shapeIndex = i;
-
-        for (int j = 0; j < n_materials; ++j) {
-            r_check += static_cast<float>(material_counts[j]) / static_cast<float>(objects_remaining);
-            
-            if (r < r_check) {
-                material_counts[i] -= 1;
-                objects_remaining -= 1;
-                objectPtr.material = static_cast<Material>(j);
-                objectPtr.materialIndex = material_counts[i];
-            }
-        }
-    }
-
-    auto lamberts = build_lamberts<n_lamberts>(seed);
-    auto metals = build_metals<n_metals>(seed);
-    auto dielectrics = build_dielectrics<n_dielectrics>(seed);
-}
 
 int main() {
     int runtimeVersion = 0;
     cudaError_t cudaStatus;
     ON_ERROR_RETURN(cudaRuntimeGetVersion(&runtimeVersion));
     VAR("CUDA VERSION", runtimeVersion);
-    return render();    
-}
+    return render();
 
+//    AlienManager am;
+//    std::vector<Char3> pixels = { Char3(1, 2, 3) };
+//
+//    auto &c_pixels = am.add(pixels);
+//
+//    ON_ERROR_GOTO(cudaSetDevice(0));
+//    ON_ERROR_GOTO(am.allocate());
+//    ON_ERROR_GOTO(am.toGpu());
+//
+//    printf("%i\n", c_pixels.devPtr);
+//    //printf("%i\n", c_pixels.hostPtr);
+//
+//    KERNEL(test_kernal, 1, 1)(c_pixels.devPtr);
+//
+//    ON_ERROR_GOTO(cudaDeviceSynchronize());
+//ERROR:
+//    am.free();
+//    ON_ERROR_RETURN(cudaStatus);
+//    return 0;
+
+    //
+}
 

@@ -2,8 +2,6 @@
 #include "tools.cuh"
 #include <cmath>
 
-typedef unsigned int uint;
-
 template <typename T>
 APUS T clamp(T x, T min, T max) {
     if (x < min) return min;
