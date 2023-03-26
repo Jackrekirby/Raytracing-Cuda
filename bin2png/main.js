@@ -2,7 +2,7 @@ const fs = require('fs');
 const canvas = require('canvas');
 
 
-function create_png(infile, outfile, width, height) {
+function create_png(infile, outfile, version, width, height) {
     let pixels = new Uint8ClampedArray(fs.readFileSync(infile + '.bin', null));
     const imageData = new canvas.ImageData(width, height);
 
@@ -21,6 +21,7 @@ function create_png(infile, outfile, width, height) {
 
     context.putImageData(imageData, 0, 0);
     const buffer = image.toBuffer("image/png");
+    fs.writeFileSync(outfile + '_' + version + '.png', buffer);
     fs.writeFileSync(outfile + '.png', buffer);
 }
 
@@ -32,9 +33,8 @@ const dir = outfile.split('/').slice(0, -1).join('/');
 
 fs.readdir(dir, (_err, files) => {
     const nfiles = String(999 - files.length).padStart(3, '0');
-    outfile = outfile + '_' + nfiles;
-    console.log("bin2png", infile, outfile, width, height);
-    create_png(infile, outfile, Number(width), Number(height));
+    console.log("bin2png", infile, outfile, nfiles, width, height);
+    create_png(infile, outfile, nfiles, Number(width), Number(height));
 });
 
 

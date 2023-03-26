@@ -19,6 +19,7 @@ typedef unsigned int uint;
 
 #define FAIL_NAN(var) if (isnan(var) && var != 0.0F) __trap()
 #define EXIT(msg, ...) printf("Forced Exit at function: %s, line: %i. Message: \n", __FUNCTION__, __LINE__); printf(msg, __VA_ARGS__); printf("\n"); exit(1)
+#define CUDA_EXIT(msg, ...) printf(msg, __VA_ARGS__); __trap()
 
 constexpr float pi = 3.1415927F;
 constexpr float f_infinity = 3.40282e+038F;

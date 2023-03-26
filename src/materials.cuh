@@ -2,7 +2,7 @@
 #include "vec.cuh"
 #include "hit_record.cuh"
 
-enum class Material { Lambert, Metal, Dielectric };
+enum class Material { Lambert, Metal, Dielectric, DiffuseLight };
 
 class Lambert {
 public:
@@ -21,10 +21,18 @@ public:
 
 struct Dielectric {
 public:
-    Dielectric() : color(Float3()), refractive_index(0) {}
-    Dielectric(Float3 color, float refractive_index) : color(color), refractive_index(refractive_index) {}
+    Dielectric() : color(Float3()), roughness(0), refractive_index(0) {}
+    Dielectric(Float3 color, float roughness, float refractive_index) : color(color), roughness(roughness), refractive_index(refractive_index) {}
     Float3 color;
+    float roughness;
     float refractive_index;
+};
+
+struct DiffuseLight {
+public:
+    DiffuseLight() : color(Float3()) {}
+    DiffuseLight(Float3 color) : color(color) {}
+    Float3 color;
 };
 
 GPU bool scatter_lambert(const Ray& ray_in, const HitRecord& record, Ray& ray_out, int& seed) {
@@ -68,6 +76,6 @@ GPU bool scatter_dielectric(
     else
         direction = refract(unit_direction, record.normal, refraction_ratio);
 
-    ray_out = Ray(record.p, direction);
+    ray_out = Ray(record.p, direction + dielectric.roughness * random_in_unit_sphere(seed));
     return true;
 }

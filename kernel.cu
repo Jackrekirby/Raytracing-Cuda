@@ -20,7 +20,8 @@
 #include "src/skybox.cuh"
 #include "src/scene.cuh"
 
-constexpr uint n_spheres = 1000, n_lamberts = 500, n_metals = 300, n_dielectrics = 200;
+//constexpr uint n_spheres = 3, n_lamberts = 0, n_metals = 1, n_dielectrics = 1, n_diffuse_lights = 1;
+constexpr uint n_spheres = 1000, n_lamberts = 200, n_metals = 400, n_dielectrics = 400, n_diffuse_lights = 0;
 constexpr uint n_objects = n_spheres;
 constexpr int skybox_face_length = 900;
 
@@ -54,6 +55,7 @@ GPU ObjectPtr* compute_hits(const Ray& ray, const Objects *objects, HitRecord &c
 
 GPU Float3 color_ray(const Ray& ray, const Objects* objects, int depth, const Char3* skybox_pixels, int& seed) {
     Float3 color(0, 0, 0);
+    Float3 emission(0, 0, 0);
     Float3 total_attenuation(1, 1, 1);
     Ray ray_in = ray;
 
@@ -86,24 +88,40 @@ GPU Float3 color_ray(const Ray& ray, const Objects* objects, int depth, const Ch
                 attenuation = dielectric.color;
                 break;
             }
+            case Material::DiffuseLight: {
+                const DiffuseLight& light = objects->diffuse_lights[ref.materialIndex];
+                doScatter = false;
+                emission = light.color;
+                break;
+            }
             default:
-                __trap();
-                return Float3(1, 1, 0);
-                //throw_error("Undefined Material");
+                CUDA_EXIT("Undefined Material");
             }
             
-            if (!doScatter) return Float3(0, 0, 0);
+            if (!doScatter) return total_attenuation * emission;
             total_attenuation *= attenuation;
             
             ray_in = ray_out;
-            if(i + 1 < depth) continue;
-            
+            if(i + 1 < depth) continue; 
         }
 
         const Float3 unit_direction = unit_vector(ray_in.direction);
+        const Float3 light_direction = Float3(1, 1, 1);
+        const float directional_light = dot(unit_vector(light_direction), unit_direction);
+        const float ambient_light = 0.8f;
+        float skylight = ambient_light > directional_light ? ambient_light : directional_light;
+
+        ObjectPtr* closest_object2 = compute_hits(Ray(ray_in.origin, light_direction), objects, record);
+        if (closest_object2 == nullptr) {
+            skylight = 1.0f;
+        }
+        else {
+            skylight = 0.0f;
+        }
 
         const int skybox_pixel_index = coordinate_to_skybox_pixel_index(unit_direction, skybox_face_length);
-        color += total_attenuation * static_cast<Float3>(skybox_pixels[skybox_pixel_index]) / 256.0F;
+        const Float3 skycolor = static_cast<Float3>(skybox_pixels[skybox_pixel_index]) / 256.0F;
+        color += total_attenuation * skycolor;
         break;
     }
     
@@ -128,8 +146,8 @@ CUDA void compute_pixel(
     const int i = x + y * width;
     int seed = i;
 
-    const int samples_per_pixel = 10;
-    const int max_depth = 5;
+    const int samples_per_pixel = 30;
+    const int max_depth = 10;
 
     Float3 color(0, 0, 0);
     for (int i = 0; i < samples_per_pixel; ++i) {
@@ -154,158 +172,48 @@ CUDA void compute_pixel(
 }
     
 
-
-void generate_spheres(
-    std::array<Sphere, n_spheres>& spheres, 
-    const Float3 offset,
-    float max_placement_radius, 
-    float min_radius, 
-    float max_radius, 
-    int start_index,
-    int& seed
-) {
-
-    int i = start_index;
-    int k = 0;
-    while(k < n_spheres * 10) {
-        Sphere &sphere = spheres[i];
-        float radius = random_float(seed, min_radius, max_radius);
-
-        float placement_radius = max_placement_radius * sqrt(random_float(seed));
-        float placement_angle = random_float(seed) * 2 * pi;
-
-        Float3 center = Float3(
-            placement_radius * cosf(placement_angle),
-            radius, 
-            placement_radius * sinf(placement_angle)
-        ) + offset;
-
-        bool too_close = false;
-
-        for (int j = 0; j < i; ++j) {
-            Sphere other = spheres[j];
-
-            float min_dist = radius + other.radius;
-            if ((center - other.center).length_squared() < min_dist * min_dist) {
-                too_close = true;
-                break;
-            }
-        }
-
-        if (!too_close) {
-            sphere.center = center;
-            sphere.radius = radius;
-            ++i;
-        } 
-
-        if (i == n_spheres) break;
-        k++;
-    }
-}
-
-
-
-
-
 int render() {
     TimeIt t;
     t.start("render");
 
     int seed = 435735475; // 4357354765
     std::stringstream ss;
-
+    
+    // 2360, 1640
     Image image(1920);
 
-    Float3 lookfrom(5, 5, 5);
+    Float3 lookfrom(13, 2, 3);
     Float3 lookat(0, 0, 0);
     Float3 vup(0, 1, 0);
-    float dist_to_focus = (lookfrom - lookat).length();
-    float aperture = 2.0F;
-    float vfov = 80;
+    float dist_to_focus = 10.0f; //(lookfrom - lookat).length();
+    float aperture = 0.1F;
+    float vfov = 20;
      
     Camera camera(lookfrom, lookat, vup, vfov, image.aspect_ratio, aperture, dist_to_focus);
 
     KernelAllocator ka(image.width, image.height);
 
-    //std::array<Lambert, n_lamberts> lamberts{};
-
-    //for (int i = 0; i < n_lamberts; i++) {
-    //    auto& lambert = lamberts[i];
-    //    lambert.color = Float3::random(seed, 0.5, 1);
-    //}
-
-    //std::array<Metal, n_metals> metals{
-    //    //Metal(Float3(1, 1, 1), 0)
-    //};
-
-    //for (int i = 0; i < n_metals; i++) {
-    //    auto& metal = metals[i];
-    //    metal.color = Float3::random(seed, 0.5, 1);
-    //    metal.roughness = random_float(seed, 0, 1);
-    //}
-
-    //std::array<Dielectric, n_dielectrics> dielectrics{};
-
-    //for (int i = 0; i < n_dielectrics; i++) {
-    //    auto& dielectric = dielectrics[i];
-    //    dielectric.color = Float3::random(seed, 0.5, 1);
-    //    dielectric.refractive_index = random_float(seed, 0.5, 4);
-    //}
-
-    //std::array<Sphere, n_spheres> spheres = {
-    //    Sphere(Float3(0,-1000,0), 1000)
-    //    //Sphere(Float3(0,0,0), 3)
-    //};
-
-    //generate_spheres(spheres, Float3(0, 0, 0), 16.0F, 0.2F, 1.2F, 1, seed);
-
-    //std::array<ObjectPtr, n_objects> objectPtrs{ ObjectPtr(Shape::sphere, 0, Material::Metal, 0) };
-
-
-    ObjectManager obj_mgr(n_objects, n_spheres, n_lamberts, n_metals, n_dielectrics);
+    ObjectManager obj_mgr(n_objects, n_spheres, n_lamberts, n_metals, n_dielectrics, n_diffuse_lights);
     obj_mgr.add_object(Shape::sphere, Material::Metal);
-    obj_mgr.spheres.push_back({ Float3(0,-1000,0), 1000 });
-    obj_mgr.metals.push_back({ Metal(Float3(0.7, 0.7, 1), 0.4) });
-    obj_mgr.random_fill(seed, Float3(0, 0, 0), 32.0F, 0.2F, 1.2F, 100);
+    obj_mgr.spheres.push_back({ Float3(0,-1000.0f,0), 1000.0f });
+    obj_mgr.metals.push_back({ Metal(Float3(0.7f, 0.7f, 1.0f), 0.4f) });
+
+    obj_mgr.add_object(Shape::sphere, Material::Dielectric);
+    obj_mgr.spheres.push_back({ Float3(0, 1, 0), 1.0f });
+    obj_mgr.dielectrics.push_back({ Dielectric(Float3(1, 1, 1), 0.0f, 1.5f) });
+
+    obj_mgr.add_object(Shape::sphere, Material::Lambert);
+    obj_mgr.spheres.push_back({ Float3(-4, 1, 0), 1.0f });
+    obj_mgr.lamberts.push_back({ Lambert(Float3(0.7f, 1.0f, 0.4f)) });
+
+    obj_mgr.add_object(Shape::sphere, Material::Metal);
+    obj_mgr.spheres.push_back({ Float3(4, 1, 0), 1.0f });
+    obj_mgr.metals.push_back({ Metal(Float3(0.7, 0.6, 0.5), 0.0f) });
+
+    obj_mgr.random_fill(seed, Float3(0, 0, 0), 0.0F, 11.0F, 0.1F, 0.3F, 100);
     obj_mgr.build_objects();
 
-
- /*   for (auto sphere : spheres) {
-        printf("%.4f, %.4f, %.4f, %.4f\n", sphere.center.x, sphere.center.y, sphere.center.z, sphere.radius);
-    }*/
-
-    
-
-    //int lambert_index = 0;
-    //int metal_index = 0;
-    //int dielectric_index = 0;
-    //for (int i = 0; i < n_objects; i++) {
-    //    auto& ref = objectPtrs[i];
-    //    ref.shape = Shape::sphere;
-    //    ref.shapeIndex = i;
-
-    //    float r = random_float(seed);
-    //    if (r < 0.5F) {
-    //        ref.material = Material::Lambert;
-    //        ref.materialIndex = lambert_index;
-    //        lambert_index++;
-    //    } else if (r < 0.75F) {
-    //        ref.material = Material::Metal;
-    //        ref.materialIndex = metal_index;
-    //        metal_index++;
-    //    }
-    //    else {
-    //        ref.material = Material::Dielectric;
-    //        ref.materialIndex = dielectric_index;
-    //        dielectric_index++;
-    //    }
-    //}
-
     std::vector<Char3> skybox_pixels = import_skybox(skybox_face_length);
-
-    //Objects objects(lamberts.data());
-    //Objects objects(objectPtrs.data(), spheres.data(), lamberts.data(), metals.data(), dielectrics.data());
-
 
     AlienManager am;
     auto &c_objects = am.add(obj_mgr.objects);
@@ -313,6 +221,7 @@ int render() {
     auto &c_lamberts = am.add(obj_mgr.lamberts);
     auto &c_metals = am.add(obj_mgr.metals);
     auto &c_dielectrics = am.add(obj_mgr.dielectrics);
+    auto& c_diffuse_lights = am.add(obj_mgr.diffuse_lights);
     auto &c_objectPtrs = am.add(obj_mgr.objectPtrs);
     auto &c_camera = am.add(camera);
     auto &c_pixels = am.add(image.pixels, AlienType::OUT);
@@ -338,6 +247,7 @@ int render() {
     copyDataToGpuBuffer(&c_objects.devPtr->lamberts, &c_lamberts.devPtr);
     copyDataToGpuBuffer(&c_objects.devPtr->metals, &c_metals.devPtr);
     copyDataToGpuBuffer(&c_objects.devPtr->dielectrics, &c_dielectrics.devPtr);
+    copyDataToGpuBuffer(&c_objects.devPtr->diffuse_lights, &c_diffuse_lights.devPtr);
     copyDataToGpuBuffer(&c_objects.devPtr->refs, &c_objectPtrs.devPtr);
 
     t.start("compute_pixel");
@@ -365,16 +275,10 @@ int render() {
     t.stop();
 ERROR:
     am.free();
+    t.stop();
     ON_ERROR_RETURN(cudaStatus);
     return 0;
 }
-
-
-CUDA void test_kernal(Char3 *pixels) {
-    printf("%i", pixels[0].x);
-    pixels[0].x = 125;
-}
-
 
 int main() {
     int runtimeVersion = 0;
@@ -382,30 +286,5 @@ int main() {
     ON_ERROR_RETURN(cudaRuntimeGetVersion(&runtimeVersion));
     VAR("CUDA VERSION", runtimeVersion);
     return render();
-
-    
-    //return 0;
-
-//    AlienManager am;
-//    std::vector<Char3> pixels = { Char3(1, 2, 3) };
-//
-//    auto &c_pixels = am.add(pixels);
-//
-//    ON_ERROR_GOTO(cudaSetDevice(0));
-//    ON_ERROR_GOTO(am.allocate());
-//    ON_ERROR_GOTO(am.toGpu());
-//
-//    printf("%i\n", c_pixels.devPtr);
-//    //printf("%i\n", c_pixels.hostPtr);
-//
-//    KERNEL(test_kernal, 1, 1)(c_pixels.devPtr);
-//
-//    ON_ERROR_GOTO(cudaDeviceSynchronize());
-//ERROR:
-//    am.free();
-//    ON_ERROR_RETURN(cudaStatus);
-//    return 0;
-
-    //
 }
 

@@ -17,14 +17,15 @@ public:
 
 class Objects {
 public:
-    Objects(): refs(nullptr), spheres(nullptr), lamberts(nullptr), metals(nullptr), dielectrics(nullptr) {}
+    Objects(): refs(nullptr), spheres(nullptr), lamberts(nullptr), metals(nullptr), dielectrics(nullptr), diffuse_lights(nullptr) {}
 
-    Objects(ObjectPtr* refs, Sphere* spheres, Lambert* lamberts, Metal* metals, Dielectric* dielectrics) :
-        refs(refs), spheres(spheres), lamberts(lamberts), metals(metals), dielectrics(dielectrics) { }
+    Objects(ObjectPtr* refs, Sphere* spheres, Lambert* lamberts, Metal* metals, Dielectric* dielectrics, DiffuseLight* diffuse_lights) :
+        refs(refs), spheres(spheres), lamberts(lamberts), metals(metals), dielectrics(dielectrics), diffuse_lights(diffuse_lights) { }
 
     ObjectPtr* refs;
     Sphere* spheres;
     Lambert* lamberts;
     Metal* metals;
     Dielectric* dielectrics;
+    DiffuseLight* diffuse_lights;
 };

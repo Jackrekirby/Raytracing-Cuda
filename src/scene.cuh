@@ -4,19 +4,19 @@
 #include "materials.cuh"
 #include "object.cuh"
 
-constexpr uint n_materials = 3, n_shapes = 1;
+constexpr uint n_materials = 4, n_shapes = 1;
 class ObjectManager {
 public:
-    ObjectManager(uint n_objects, uint n_spheres, uint n_lamberts, uint n_metals, uint n_dielectrics):
+    ObjectManager(uint n_objects, uint n_spheres, uint n_lamberts, uint n_metals, uint n_dielectrics, uint n_diffuse_lights):
         count_objects(0), total_objects(n_objects) {
         if (n_objects != n_spheres) {
             EXIT("n_objects != n_spheres");
         }
-        if (n_objects != (n_lamberts + n_metals + n_dielectrics)) {
-            EXIT("n_objects != (n_lamberts + n_metals + n_dielectrics)");
+        if (n_objects != (n_lamberts + n_metals + n_dielectrics + n_diffuse_lights)) {
+            EXIT("n_objects != (n_lamberts + n_metals + n_dielectrics + n_diffuse_lights)");
         }
 
-        total_materials = { n_lamberts, n_metals, n_dielectrics };
+        total_materials = { n_lamberts, n_metals, n_dielectrics, n_diffuse_lights };
         total_shapes = { n_spheres };
 
         count_materials = { 0, 0, 0 };
@@ -33,12 +33,36 @@ public:
     }
 
     void build_objects() {
-        objects = Objects(objectPtrs.data(), spheres.data(), lamberts.data(), metals.data(), dielectrics.data());
+        objects = Objects(objectPtrs.data(), spheres.data(), lamberts.data(), metals.data(), dielectrics.data(), diffuse_lights.data());
+    }
+
+    int material_index(Material material) {
+        return static_cast<int>(material);
+    }
+
+    uint total_material(Material material) {
+        return total_materials[material_index(material)];
+    }
+
+    uint count_material(Material material) {
+        return count_materials[material_index(material)];
+    }
+
+    int get_material_left(Material material, bool diffuse_light_check = false) {
+        if (
+            diffuse_light_check && 
+            material == Material::Dielectric && 
+            total_material(Material::Dielectric) > total_material(Material::DiffuseLight)
+        ) {
+            return get_material_left(Material::Dielectric) - get_material_left(Material::DiffuseLight);
+        }
+        return total_material(material) - count_material(material);
     }
 
     void random_fill(
         int& seed,
         const Float3 offset,
+        float min_placement_radius,
         float max_placement_radius,
         float min_radius,
         float max_radius,
@@ -49,15 +73,16 @@ public:
             float r_check = 0;
 
             for (int i = 0; i < n_materials; ++i) {
-                const int material_left = total_materials[i] - count_materials[i];
+                Material material = static_cast<Material>(i);
+                const int material_left = get_material_left(material, true);
                 const int objects_left = total_objects - count_objects;
                 r_check += static_cast<float>(material_left) / static_cast<float>(objects_left);
-                //printf("%i, %i, %.4f\n", material_left, objects_left, r_check);
-
+                //printf("%i, %i, %i, %.4f\n", i, material_left, objects_left, r_check);
+                
                 if (r < r_check) {
                     bool was_made = false;
                     for (int j = 0; j < max_attempts; ++j) {
-                        Sphere sphere = random_sphere(seed, offset, max_placement_radius, min_radius, max_radius);
+                        Sphere sphere = random_sphere(seed, offset, min_placement_radius, max_placement_radius, min_radius, max_radius);
                         was_made = add_sphere(sphere);
                         if (was_made) break;
                     }
@@ -67,19 +92,32 @@ public:
                         return; // if failed to place sphere many times then give up
                     }
 
-                    Material material = static_cast<Material>(i);
-                    add_object(Shape::sphere, material);
-
                     switch (material)
                     {
                     case Material::Lambert:
                         lamberts.push_back(random_lambert(seed));
+                        add_object(Shape::sphere, material);
                         break;
                     case Material::Metal:
                         metals.push_back(random_metal(seed));
+                        add_object(Shape::sphere, material);
                         break;
                     case Material::Dielectric:
                         dielectrics.push_back(random_dielectric(seed));
+                        add_object(Shape::sphere, material);
+                        break;
+                    case Material::DiffuseLight:
+                        const int dielectric_left = get_material_left(Material::Dielectric);
+                        if (dielectric_left > 0) {
+                            dielectrics.push_back({ Float3(1, 1, 1), 0.05f, 1.5f });
+                            add_object(Shape::sphere, Material::Dielectric);
+
+                            const Sphere& outer = spheres.back();
+                            Sphere inner = { outer.center, outer.radius * 0.7f };
+                            spheres.push_back(inner);
+                        }
+                        diffuse_lights.push_back(random_diffuse_light(seed));
+                        add_object(Shape::sphere, material);
                         break;
                     }
                     break;
@@ -91,12 +129,14 @@ public:
     Sphere random_sphere(
         int& seed, 
         const Float3 offset,
+        float min_placement_radius,
         float max_placement_radius,
         float min_radius,
         float max_radius
     ) {
+        
+        float placement_radius = min_placement_radius + (max_placement_radius - min_placement_radius) * sqrt(random_float(seed));
         float radius = random_float(seed, min_radius, max_radius);
-        float placement_radius = max_placement_radius * sqrt(random_float(seed));
         float placement_angle = random_float(seed) * 2 * pi;
 
         Float3 center = Float3(
@@ -111,7 +151,8 @@ public:
     Dielectric random_dielectric(int &seed) {
         const auto color = Float3::random(seed, 0.5, 1);
         const auto refractive_index = random_float(seed, 0.5, 4);
-        return { color, refractive_index };
+        const auto roughness = random_float(seed, 0, 0);
+        return { color, roughness, refractive_index };
     }
 
     Lambert random_lambert(int& seed) {
@@ -122,6 +163,10 @@ public:
         const auto color = Float3::random(seed, 0.5, 1);
         const auto roughness = random_float(seed, 0, 1);
         return { color, roughness };
+    }
+
+    DiffuseLight random_diffuse_light(int& seed) {
+        return { Float3::random(seed, 0.5, 1) };
     }
 
 
@@ -156,73 +201,6 @@ public:
     std::vector<Lambert> lamberts;
     std::vector<Metal> metals;
     std::vector<Dielectric> dielectrics;
+    std::vector<DiffuseLight> diffuse_lights;
     Objects objects;
 };
-
-
-//auto lamberts = build_lamberts<n_lamberts>(seed);
-//auto metals = build_metals<n_metals>(seed);
-//auto dielectrics = build_dielectrics<n_dielectrics>(seed);
-
-
-//// check material propensities sum to max_propensity
-//int total_propensity = 0;
-//for (auto propensity : material_propensities) {
-//    total_propensity += propensity;
-//}
-//if (total_propensity != max_propensity) {
-//    printf("material propensities don't sum to max propensity");
-//    return;
-//}
-//
-//// convert propensities into actual number of material variants
-//int current_total_objects = 0;
-//std::array<int, n_materials> material_counts{};
-//for (int i = 1; i < n_materials; ++i) {
-//    int n = static_cast<int>(static_cast<float>(n_objects) * static_cast<float>(material_propensities[i]) / static_cast<float>(max_propensity));
-//    material_counts[i] = n;
-//    current_total_objects += n;
-//}
-//material_counts[0] = n_objects - current_total_objects;
-//
-//for (auto n : material_counts) {
-//    printf("%i, ", n);
-//}
-//
-//// create object ptrs
-
-
-//template <int n>
-//std::array<Metal, n> build_metals(int& seed) {
-//    std::array<Metal, n> metals{};
-//
-//    for (int i = 0; i < n; i++) {
-//        auto& metal = metals[i];
-//        metal.color = Float3::random(seed, 0.5, 1);
-//        metal.roughness = random_float(seed, 0, 1);
-//    }
-//
-//    return metals;
-//}
-//
-//template <int n>
-//std::array<Lambert, n> build_lamberts(int& seed) {
-//    std::array<Lambert, n> lamberts{};
-//    for (int i = 0; i < n; i++) {
-//        auto& lambert = lamberts[i];
-//        lambert.color = Float3::random(seed, 0.5, 1);
-//    }
-//    return lamberts;
-//}
-//
-//template <int n>
-//std::array<Dielectric, n> build_dielectrics(int& seed) {
-//    std::array<Dielectric, n> dielectrics{};
-//
-//    for (int i = 0; i < n; i++) {
-//        auto& dielectric = dielectrics[i];
-//        dielectric.color = Float3::random(seed, 0.5, 1);
-//        dielectric.refractive_index = random_float(seed, 0.5, 4);
-//    }
-//    return dielectrics;
-//}
