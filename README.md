@@ -1,6 +1,6 @@
 # Raytracing Cuda
 
-An attempt to recreate (ray tracing in one weekend)[https://raytracing.github.io/books/RayTracingInOneWeekend.html] using Cuda in C++.
+An attempt to recreate [ray tracing in one weekend](https://raytracing.github.io/books/RayTracingInOneWeekend.html) using Cuda in C++.
 
 Features include:
 
